@@ -1,0 +1,407 @@
+---
+title: 'Final Project'
+author: "Matt Dula"
+date: "4/30/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+```{r}
+library(tidyverse)
+library(rvest)
+library(choroplethr)
+library(choroplethrMaps)
+library(gridExtra)
+
+```
+
+
+## Coronavirus 
+
+Scrape coronavirus data by state
+```{r}
+corona <- "https://www.worldometers.info/coronavirus/country/us/" %>%read_html()%>%html_nodes("table") %>% html_table(fill = TRUE) %>% .[1] %>% tibble() %>% .[1]
+```
+
+
+Remove commas from numeric variables so they can be turned into integers.
+```{r}
+corona <- unnest(corona)
+corona$TotalCases <- str_replace_all(corona$TotalCases, ",", "")
+corona$TotalDeaths <- str_replace_all(corona$TotalDeaths, ",", "")
+corona$`Deaths/1M pop` <- str_replace_all(corona$`Deaths/1M pop`, ",", "")
+
+corona$TotalCases <- as.integer(corona$TotalCases)
+corona$TotalDeaths <- as.integer(corona$TotalDeaths)
+corona$`Deaths/1M pop` <- as.integer(corona$`Deaths/1M pop`)
+```
+
+
+Remove non-state rows and make state names lowercase to fit maps. Also create a table with state names to easily remove non-states from future tables
+```{r}
+corona <- corona %>% .[-1,] %>% .[-(52:63),]
+corona$USAState <- tolower(corona$USAState)
+
+state_table <- corona$USAState %>% tibble()
+```
+
+
+Make a death rate variable by dividing deaths by cases
+```{r}
+corona <- corona %>% mutate(death_rate = (TotalDeaths/TotalCases))
+```
+
+
+Remove state initials on future maps
+```{r}
+state_choropleth <- function (df, title = "", legend = "", num_colors = 7, 
+                              zoom = NULL, reference_map = FALSE) 
+{
+  c = StateChoropleth$new(df)
+  c$title = title
+  c$legend = legend
+  c$set_num_colors(num_colors)
+  c$set_zoom(zoom)
+  c$show_labels = F
+  if (reference_map) {
+    if (is.null(zoom)) {
+      stop("Reference maps do not currently work with maps that have insets, such as maps of the 50 US States.")
+    }
+    c$render_with_reference_map()
+  }
+  else {
+    c$render()
+  }
+}
+```
+
+
+Create map of death rate by state
+```{r}
+death_rate <- corona %>% select(USAState, death_rate)
+death_rate <- death_rate %>% rename(region = USAState, value = death_rate)
+
+death_map <- state_choropleth(death_rate,title  = "Coronavirus Death Rate by US State",legend = "Death Rate", num_colors = 9)
+```
+
+
+Create map of cases by state
+```{r}
+total_cases <- corona[,1:2]
+
+total_cases <- total_cases %>% rename(region = USAState, value = TotalCases)
+
+total_cases$region <- tolower(total_cases$region)
+
+cases_map <- state_choropleth(total_cases,title  = "Total Coronavirus Cases by US State",legend = "Cases", num_colors = 9)
+```
+
+
+
+
+
+## Obesity
+
+Scrape Obesity by state data
+```{r}
+obesity <- "https://en.wikipedia.org/wiki/Obesity_in_the_United_States" %>%read_html()%>%html_nodes("table") %>% html_table(fill = TRUE) 
+
+obesity <- obesity[1] %>% tibble()
+obesity <- unnest(obesity)
+```
+
+
+Select state and obesity rate columns and name them correctly. Remove non-digits but keep decimals from the rate column and covert to a double. Make state column lowercase.
+```{r}
+obesity <- obesity %>% select(`States, district, & territories`, `Obese adults (2020)[75][70][76]`)
+obesity <- obesity %>% rename(State = `States, district, & territories`, Obesity_rate = `Obese adults (2020)[75][70][76]`) 
+
+obesity$Obesity_rate <- str_replace_all(obesity$Obesity_rate, "[^0-9|.]", "")
+obesity$Obesity_rate <- as.double(obesity$Obesity_rate)
+
+obesity$State <- tolower(obesity$State)
+```
+
+
+Use table made earlier to remove all non-states from table
+```{r}
+obesity <- obesity %>% inner_join(state_table, by= c("State" = "."))
+```
+
+
+Create map for obesity rate by state
+```{r}
+obesity_map <- obesity %>% rename(region = State, value = Obesity_rate)
+obesity_map <- state_choropleth(obesity_map,title  = "Adult Obesity Rate by US State",legend = "Obesity Rate", num_colors = 9)
+```
+
+
+## Smoking
+
+Scrape smoking by state data by state
+```{r}
+smoking <- "https://worldpopulationreview.com/states/smoking-rates-by-state/" %>%read_html()%>%html_nodes("table") %>% html_table(fill = TRUE) %>% tibble() %>% unnest()
+```
+
+
+Rename columns correctly, remove all non-digits or decimals from rate column and covert to a double. Make state column lower case.
+```{r}
+smoking <- smoking %>% rename(smoking_rate = `Number of Smoking Adults`) %>% select(State,smoking_rate)
+smoking$smoking_rate <- str_replace_all(smoking$smoking_rate, "[^0-9|.]", "")
+smoking$smoking_rate <- as.double(smoking$smoking_rate)
+smoking$State <- tolower(smoking$State)
+```
+
+
+Create smoking rate map by state
+```{r}
+smoking_map <- smoking %>% rename(region = State, value = smoking_rate)
+
+smoking_map <- state_choropleth(smoking_map,title  = "Adult Smoking Rate by US State",legend = "Smoking Rate", num_colors = 9)
+```
+
+
+## Healthcare
+
+Scrape healthcare data
+```{r}
+healthcare <- "https://wallethub.com/edu/states-with-best-health-care/23457/" %>%read_html()%>%html_nodes("table") %>% html_table(fill = TRUE) %>% tibble() %>% unnest()
+```
+
+
+Rename columns and make state column lowercase
+```{r}
+healthcare <- healthcare %>% select(State, `Total Score`) %>% rename(health_score = `Total Score`)
+healthcare$State <- tolower(healthcare$State)
+```
+
+
+Create healthcare map by state
+```{r}
+health_map <- healthcare %>% rename(region = State, value = health_score)
+health_map <- state_choropleth(health_map,title  = "Healthcare Score by US State",legend = "Score", num_colors = 9)
+```
+
+
+## Public Health
+
+Scrape public health data and select desired columns
+```{r}
+public_health <- "https://www.usnews.com/news/best-states/rankings/health-care/public-health" %>%read_html()%>%html_nodes("table") %>% html_table(fill = TRUE)
+
+public_health <- public_health[53] %>% tibble() %>% unnest()
+
+public_health<- public_health %>% select(State,`Mental Health`,`Low Mortality Rate`,`Low Smoking Rate`,`Low Infant Mortality Rate`,`Low Obesity Rate`,`Low Suicide Rate`) %>% .[-1,]
+
+```
+
+
+After Scrapping, each state row name was included twice so I arranged the rows alphabetically then changed the state column to match a table with state names
+```{r}
+public_health <- arrange(public_health, State) %>% .[-1,]
+state_table1 <- arrange(state_table, .) %>% .[-9,]
+public_health$State = state_table1$.
+```
+
+
+Calculate an average of the public health rankings
+```{r}
+public_health <- public_health %>% mutate(average = ((`Mental Health`+`Low Mortality Rate`+`Low Smoking Rate`+`Low Infant Mortality Rate`+`Low Obesity Rate`+`Low Suicide Rate`)/6))
+```
+
+
+Create public health by state map
+```{r}
+pubhealth_map <- public_health %>% select(State, average) %>% rename(region = State, value = average)
+
+pubhealth_map <- state_choropleth(pubhealth_map,title  = "Public Health Score by US State",legend = "Score", num_colors = 9)
+```
+
+
+## Combined Table
+
+Combine previous coronavirus and health statistic tables into one final table.
+```{r}
+final_table <- corona %>% select(USAState, death_rate) %>% inner_join(obesity, by= c("USAState" = "State")) %>% inner_join(smoking,  by= c("USAState" = "State")) %>% inner_join(healthcare, by = c("USAState" = "State")) %>% inner_join(public_health, by = c("USAState" = "State"))
+```
+
+
+Save final table as csv
+```{r}
+write.csv(final_table, file = file.choose(new = T))
+```
+
+
+
+
+## Coronavirus and Population Density in NY and NJ
+
+Scrape coronavirus data by new york county
+```{}
+ny <- "https://en.wikipedia.org/wiki/2020_coronavirus_pandemic_in_New_York_(state)" %>% read_html()%>%html_nodes("table") %>% html_table(fill = TRUE)
+
+ny_county <- ny[6] %>% tibble() 
+```
+
+
+Select and rename desired columns, remove first row which does not contain data
+```{r}
+ny_county <- ny_county$.[[1]] %>% as.tibble(.name_repair = "unique") 
+ny_county <- ny_county[,1:3]
+ny_county <- ny_county %>% rename(County = `County [a]`, Cases = `Cases [b][c]`, Deaths = `Deaths [c]`)
+ny_county <- ny_county[-1,]
+```
+
+
+Remove unwanted characters from columns and convert to integer and create death rate variable
+```{r}
+ny_county$County <- str_replace_all(ny_county$County, "[^A-z]|[[:punct:]]", "") 
+ny_county$Cases <- str_replace_all(ny_county$Cases, ",", "")
+ny_county$Deaths <- str_replace_all(ny_county$Deaths, ",", "")
+ny_county$Cases <- as.integer(ny_county$Cases)
+ny_county$Deaths <- as.integer(ny_county$Deaths)
+ny_county <- ny_county %>% mutate(death_rate = (Deaths/Cases))
+```
+
+
+Rename Manhattan to its proper county name: New York
+```{r}
+ny_county[28,1] = "New York"
+```
+
+
+Scrape population density data for each NY county
+```{r}
+dense <- "https://en.wikipedia.org/wiki/List_of_counties_in_New_York" %>% read_html()%>%html_nodes("table") %>% html_table(fill = TRUE)
+dense <- dense[3] %>% tibble() %>% unnest %>% select(County, Density)
+```
+
+
+Match county name format with that of previous table, convert density a double.
+```{r}
+dense$County <- str_replace_all(dense$County, " County", "")
+
+ny_table <- ny_county %>% inner_join(dense, by = "County")
+ny_table$Density <- str_replace_all(ny_table$Density, ",", "")
+ny_table$Density <- as.double(ny_table$Density)
+ny_table$County <- tolower(ny_table$County)
+```
+
+
+Retrieve county codes
+```{r}
+data(county.regions)
+```
+
+
+Create new table including county codes
+```{r}
+ny_map <- county.regions %>% filter(state.name == "new york") %>% select(region, county.name) %>% inner_join(ny_table, by = c("county.name"="County"))
+```
+
+
+## Add NJ county data
+
+
+Scrape nj county coronavirus data, rename columns
+```{r}
+nj <- "https://en.wikipedia.org/wiki/2020_coronavirus_pandemic_in_New_Jersey" %>% read_html()%>%html_nodes("table") %>% html_table(fill = TRUE)
+
+nj_county <- nj[3]%>% as.data.frame() %>% as.tibble() %>% .[,1:3] %>% rename(County = `County..a.`, Cases = `Cases..b..c.`, Deaths = `Deaths..c.`) %>% .[-1,]
+
+
+```
+
+
+
+Clean columns, convert to integer, and create death rate variable
+```{r}
+nj_county$Cases <- str_replace_all(nj_county$Cases, ",", "")
+nj_county$Deaths <- str_replace_all(nj_county$Deaths, ",", "")
+
+nj_county$Cases <- as.integer(nj_county$Cases)
+nj_county$Deaths <- as.integer(nj_county$Deaths)
+
+
+nj_county <- nj_county %>% mutate(death_rate = (Deaths/Cases))
+```
+
+
+Scrape nj county population density data and rename columns
+```{r}
+nj_dense <- "https://en.wikipedia.org/wiki/List_of_counties_in_New_Jersey" %>%  read_html()%>%html_nodes("table") %>% html_table(fill = TRUE)
+nj_dense <- nj_dense[2] %>% tibble() %>% unnest() %>% select(County, `Density (per mi²)`) %>% rename(Density = `Density (per mi²)`)
+
+```
+
+
+
+Clean the nj density data
+```{r}
+nj_dense$Density <- str_replace_all(nj_dense$Density, ",", "")
+nj_dense$Density <- as.double(nj_dense$Density)
+
+nj_dense$County <- str_replace_all(nj_dense$County, " County", "")
+```
+
+
+
+Combine coronavirus and density tables then add county codes for nj counties
+```{r}
+nj_table <- nj_county %>% inner_join(nj_dense, by = "County")
+nj_table$County <- tolower(nj_table$County)
+
+
+nj_map <- county.regions %>% filter(state.name == "new jersey") %>% select(region, county.name) %>% inner_join(nj_table, by = c("county.name"="County"))
+
+```
+
+
+
+Combine ny and nj county data
+```{r}
+ny_nj <- rbind(ny_map, nj_map)
+```
+
+
+Save table with county data as csv
+```{r}
+write.csv(ny_nj, file = file.choose(new = T))
+```
+
+
+## County Plots
+
+
+Map county population density
+```{r}
+map_density <- ny_nj %>% select(region, Density) %>% rename(value = Density)
+
+
+county_density <- county_choropleth(map_density,title  = "Population Density by New York and New Jersey County",legend = "Density", state_zoom = c("new york", "new jersey"), num_colors = 9)
+```
+
+
+
+Map county death rate
+```{r}
+map_rate <- ny_nj %>% select(region, death_rate) %>% rename(value = death_rate)
+
+
+county_death <- county_choropleth(map_rate,title  = "Death Rate by New York and New Jersey County",legend = "Death Rate", state_zoom = c("new york", "new jersey"), num_colors = 9)
+```
+
+
+
+Map county cases
+```{r}
+map_cases <- ny_nj %>% select(region, Cases) %>% rename(value = Cases)
+
+
+county_cases <- county_choropleth(map_cases,title  = "Total Cases by New York and New Jersey County",legend = "Cases", state_zoom = c("new york", "new jersey"), num_colors = 9)
+```
