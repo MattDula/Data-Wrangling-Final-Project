@@ -1,0 +1,383 @@
+---
+title: "Data Wrangling Final Report"
+author: "Matt Dula"
+date: "5/4/2020"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r, include = FALSE}
+
+#### Include this code at the beginning so my report can use plots.
+library(tidyverse)
+library(rvest)
+library(choroplethr)
+library(choroplethrMaps)
+library(gridExtra)
+
+corona <- "https://www.worldometers.info/coronavirus/country/us/" %>%read_html()%>%html_nodes("table") %>% html_table(fill = TRUE) %>% .[1] %>% tibble() %>% .[1]
+
+corona <- unnest(corona)
+corona$TotalCases <- str_replace_all(corona$TotalCases, ",", "")
+corona$TotalDeaths <- str_replace_all(corona$TotalDeaths, ",", "")
+corona$`Deaths/1M pop` <- str_replace_all(corona$`Deaths/1M pop`, ",", "")
+
+corona$TotalCases <- as.integer(corona$TotalCases)
+corona$TotalDeaths <- as.integer(corona$TotalDeaths)
+corona$`Deaths/1M pop` <- as.integer(corona$`Deaths/1M pop`)
+
+
+corona <- corona %>% .[-1,] %>% .[-(52:63),]
+#### create table to keep only state names in a tabele ####
+
+
+corona$USAState <- tolower(corona$USAState)
+state_table <- corona$USAState %>% tibble()
+#### Create death rate variable
+corona <- corona %>% mutate(death_rate = (TotalDeaths/TotalCases))
+
+####   #####  ####
+# Remove state initials on map
+state_choropleth <- function (df, title = "", legend = "", num_colors = 7, 
+                              zoom = NULL, reference_map = FALSE) 
+{
+  c = StateChoropleth$new(df)
+  c$title = title
+  c$legend = legend
+  c$set_num_colors(num_colors)
+  c$set_zoom(zoom)
+  c$show_labels = F
+  if (reference_map) {
+    if (is.null(zoom)) {
+      stop("Reference maps do not currently work with maps that have insets, such as maps of the 50 US States.")
+    }
+    c$render_with_reference_map()
+  }
+  else {
+    c$render()
+  }
+}
+
+
+
+#### Death Rate Map
+death_rate <- corona %>% select(USAState, death_rate)
+death_rate <- death_rate %>% rename(region = USAState, value = death_rate)
+
+death_map <- state_choropleth(death_rate,title  = "Coronavirus Death Rate by US State",legend = "Death Rate", num_colors = 9)
+
+
+#### Total Cases Map
+total_cases <- corona[,1:2]
+
+total_cases <- total_cases %>% rename(region = USAState, value = TotalCases)
+
+total_cases$region <- tolower(total_cases$region)
+
+cases_map <- state_choropleth(total_cases,title  = "Total Coronavirus Cases by US State",legend = "Cases", num_colors = 9)
+
+
+
+
+
+
+
+
+#### Obesity rate and map
+
+obesity <- "https://en.wikipedia.org/wiki/Obesity_in_the_United_States" %>%read_html()%>%html_nodes("table") %>% html_table(fill = TRUE) 
+
+obesity <- obesity[1] %>% tibble()
+obesity <- unnest(obesity)
+obesity <- obesity %>% select(`States, district, & territories`, `Obese adults (2020)[75][70][76]`)
+obesity <- obesity %>% rename(State = `States, district, & territories`, Obesity_rate = `Obese adults (2020)[75][70][76]`) 
+
+### still inlcudes the notes for territories but doesnt matter because i am removing them anyway
+obesity$Obesity_rate <- str_replace_all(obesity$Obesity_rate, "[^0-9|.]", "")
+obesity$Obesity_rate <- as.double(obesity$Obesity_rate)
+
+
+obesity$State <- tolower(obesity$State)
+obesity <- obesity %>% inner_join(state_table, by= c("State" = "."))
+
+
+
+obesity_map <- obesity %>% rename(region = State, value = Obesity_rate)
+
+obesity_map <- state_choropleth(obesity_map,title  = "Adult Obesity Rate by US State",legend = "Obesity Rate", num_colors = 9)
+
+
+
+
+#### Smoking rate and map
+
+smoking <- "https://worldpopulationreview.com/states/smoking-rates-by-state/" %>%read_html()%>%html_nodes("table") %>% html_table(fill = TRUE) %>% tibble() %>% unnest()
+
+smoking <- smoking %>% rename(smoking_rate = `Number of Smoking Adults`) %>% select(State,smoking_rate)
+smoking$smoking_rate <- str_replace_all(smoking$smoking_rate, "[^0-9|.]", "")
+smoking$smoking_rate <- as.double(smoking$smoking_rate)
+smoking$State <- tolower(smoking$State)
+smoking$smoking_rate <- as.double(smoking$smoking_rate)
+
+smoking_map <- smoking %>% rename(region = State, value = smoking_rate)
+
+smoking_map <- state_choropleth(smoking_map,title  = "Adult Smoking Rate by US State",legend = "Smoking Rate", num_colors = 9)
+
+
+
+
+
+
+#### Healthcare ranking
+
+
+
+
+
+healthcare <- "https://wallethub.com/edu/states-with-best-health-care/23457/" %>%read_html()%>%html_nodes("table") %>% html_table(fill = TRUE) %>% tibble() %>% unnest()
+
+healthcare <- healthcare %>% select(State, `Total Score`) %>% rename(health_score = `Total Score`)
+healthcare$State <- tolower(healthcare$State)
+
+
+
+health_map <- healthcare %>% rename(region = State, value = health_score)
+
+health_map <- state_choropleth(health_map,title  = "Healthcare Score by US State",legend = "Score", num_colors = 9)
+
+
+
+
+
+
+#### Public health
+
+public_health <- "https://www.usnews.com/news/best-states/rankings/health-care/public-health" %>%read_html()%>%html_nodes("table") %>% html_table(fill = TRUE)
+
+public_health <- public_health[53] %>% tibble() %>% unnest()
+
+public_health<- public_health %>% select(State,`Mental Health`,`Low Mortality Rate`,`Low Smoking Rate`,`Low Infant Mortality Rate`,`Low Obesity Rate`,`Low Suicide Rate`) %>% .[-1,]
+
+
+public_health <- arrange(public_health, State) %>% .[-1,]
+state_table1 <- arrange(state_table, .) %>% .[-9,]
+public_health$State = state_table1$.
+
+
+public_health <- public_health %>% mutate(average = ((`Mental Health`+`Low Mortality Rate`+`Low Smoking Rate`+`Low Infant Mortality Rate`+`Low Obesity Rate`+`Low Suicide Rate`)/6))
+
+pubhealth_map <- public_health %>% select(State, average) %>% rename(region = State, value = average)
+pubhealth_map$region <- tolower(pubhealth_map$region)
+
+pubhealth_map <- state_choropleth(pubhealth_map,title  = "Public Health Score by US State",legend = "Score", num_colors = 9)
+
+
+
+### Variables not significant for death rate. Likely because covid is effecting areas with dense population
+
+final_table <- corona %>% select(USAState, death_rate) %>% inner_join(obesity, by= c("USAState" = "State")) %>% inner_join(smoking,  by= c("USAState" = "State")) %>% inner_join(healthcare, by = c("USAState" = "State")) %>% inner_join(public_health, by = c("USAState" = "State"))
+
+
+
+
+
+
+
+grid.arrange(death_map + theme(legend.position = "bottom"), cases_map  + theme(legend.position = "bottom")+scale_fill_brewer(type='seq', palette=2), obesity_map + theme(legend.position = "bottom")+scale_fill_brewer(type='seq', palette=3), smoking_map + theme(legend.position = "bottom")+scale_fill_brewer(type='seq', palette=4), health_map + theme(legend.position = "bottom")+scale_fill_brewer(type='seq', palette=7), pubhealth_map + theme(legend.position = "bottom")+scale_fill_brewer(type='seq', palette=6), ncol=2)
+
+
+
+
+
+
+
+
+
+ny <- "https://en.wikipedia.org/wiki/2020_coronavirus_pandemic_in_New_York_(state)" %>% read_html()%>%html_nodes("table") %>% html_table(fill = TRUE)
+
+ny_county <- ny[6] %>% tibble() 
+
+ny_county <- ny_county$.[[1]] %>% as.tibble(.name_repair = "unique") 
+ny_county <- ny_county[,1:3]
+ny_county <- ny_county %>% rename(County = `County [a]`, Cases = `Cases [b][c]`, Deaths = `Deaths [c]`)
+ny_county <- ny_county[-1,]
+
+
+ny_county$County <- str_replace_all(ny_county$County, "[^A-z]|[[:punct:]]", "") 
+
+
+ny_county$Cases <- str_replace_all(ny_county$Cases, ",", "")
+ny_county$Deaths <- str_replace_all(ny_county$Deaths, ",", "")
+
+
+ny_county$Cases <- as.integer(ny_county$Cases)
+ny_county$Deaths <- as.integer(ny_county$Deaths)
+
+
+
+
+ny_county <- ny_county %>% mutate(death_rate = (Deaths/Cases))
+
+ny_county[28,1] = "New York"
+
+
+
+dense <- "https://en.wikipedia.org/wiki/List_of_counties_in_New_York" %>% read_html()%>%html_nodes("table") %>% html_table(fill = TRUE)
+dense <- dense[3] %>% tibble() %>% unnest %>% select(County, Density)
+
+dense$County <- str_replace_all(dense$County, " County", "")
+
+ny_table <- ny_county %>% inner_join(dense, by = "County")
+ny_table$Density <- str_replace_all(ny_table$Density, ",", "")
+ny_table$Density <- as.double(ny_table$Density)
+ny_table$County <- tolower(ny_table$County)
+
+
+
+
+
+
+
+data(county.regions)
+ny_map <- county.regions %>% filter(state.name == "new york") %>% select(region, county.name) %>% inner_join(ny_table, by = c("county.name"="County"))
+
+
+
+
+
+
+
+#### Adding NJ
+
+nj <- "https://en.wikipedia.org/wiki/2020_coronavirus_pandemic_in_New_Jersey" %>% read_html()%>%html_nodes("table") %>% html_table(fill = TRUE)
+
+nj_county <- nj[3]%>% as.data.frame() %>% as.tibble() %>% .[,1:3] %>% rename(County = `County..a.`, Cases = `Cases..b..c.`, Deaths = `Deaths..c.`) %>% .[-1,]
+
+
+
+nj_county$Cases <- str_replace_all(nj_county$Cases, ",", "")
+nj_county$Deaths <- str_replace_all(nj_county$Deaths, ",", "")
+
+nj_county$Cases <- as.integer(nj_county$Cases)
+nj_county$Deaths <- as.integer(nj_county$Deaths)
+
+
+nj_county <- nj_county %>% mutate(death_rate = (Deaths/Cases))
+
+
+
+nj_dense <- "https://en.wikipedia.org/wiki/List_of_counties_in_New_Jersey" %>%  read_html()%>%html_nodes("table") %>% html_table(fill = TRUE)
+nj_dense <- nj_dense[2] %>% tibble() %>% unnest() %>% select(County, `Density (per mi²)`) %>% rename(Density = `Density (per mi²)`)
+
+nj_dense$Density <- str_replace_all(nj_dense$Density, ",", "")
+nj_dense$Density <- as.double(nj_dense$Density)
+
+nj_dense$County <- str_replace_all(nj_dense$County, " County", "")
+
+
+nj_table <- nj_county %>% inner_join(nj_dense, by = "County")
+nj_table$County <- tolower(nj_table$County)
+
+
+nj_map <- county.regions %>% filter(state.name == "new jersey") %>% select(region, county.name) %>% inner_join(nj_table, by = c("county.name"="County"))
+
+
+####Joining both states
+
+ny_nj <- rbind(ny_map, nj_map)
+
+
+
+
+
+#Density
+
+map_density <- ny_nj %>% select(region, Density) %>% rename(value = Density)
+
+
+county_density <- county_choropleth(map_density,title  = "Population Density by New York and New Jersey County",legend = "Density", state_zoom = c("new york", "new jersey"), num_colors = 9)
+
+#Death rate
+
+map_rate <- ny_nj %>% select(region, death_rate) %>% rename(value = death_rate)
+
+
+county_death <- county_choropleth(map_rate,title  = "Death Rate by New York and New Jersey County",legend = "Death Rate", state_zoom = c("new york", "new jersey"), num_colors = 9)
+
+#Cases
+
+map_cases <- ny_nj %>% select(region, Cases) %>% rename(value = Cases)
+
+
+county_cases <- county_choropleth(map_cases,title  = "Total Cases by New York and New Jersey County",legend = "Cases", state_zoom = c("new york", "new jersey"), num_colors = 9)
+
+
+
+grid.arrange(county_death, county_cases, county_density)
+
+
+```
+
+
+
+### I.	Introduction
+
+  The COVID-19 pandemic has had a never-before seen impact on global society. It has now affected almost every corner of the globe one way or another. In times of catastrophe like the COVID-19 pandemic, easy access to information is vital to get a grasp on the situation. Having access to clean and easy to read COVID-19 data can ensure that individuals are well educated and informed on the topic. I wanted to focus my project on this pandemic because it is such a huge event that will affect society for years to come. My goal is to scrape coronavirus data from the internet to attempt to examine trends in death rate from COVID-19 across US states. In addition to scraping coronavirus data, I will scrape a series of health-related measurements for each state to compare with COVID-19 death rates. My data will include information on obesity, smoking, healthcare, and overall public health. I will then construct map plots using these metrics for each state to visualize COVID-19 death rate and health related information geographically in America. I aim to show that areas with worse health ratings (higher obesity ratings, higher smoker rating, worse healthcare, etc.) will have higher death rates than areas with better health.
+While evidence has shown that individuals with preexisting conditions like obesity and smoking are more likely to die from the novel coronavirus, the virus has been affecting area with high population density. The virus can spread easily between individuals in densely populated areas, infecting thousands and overwhelming hospitals which may lead to higher death rates. A state’s overall health may have little to do with its COVID-19 death rate. To account for this, I will also compare population density with COVID-19 death rate in New York and New Jersey counties.
+
+
+### Methods
+
+# Coronavirus Data
+
+  I began by scraping coronavirus data from https://www.worldometers.info/coronavirus/country/us/ which includes information on a state level. The table I scraped into R contained columns for total number of cases, total number of deaths, number of new cases, and number of new deaths as well as several other statistics. For the purpose of my project I only required the number of cases and the number of deaths for each state. Once the data were loaded into R, I selected for only the state name, total cases, and total death columns. The numeric columns were originally input into a new table as characters and not integers. To convert to an integer, I first had to remove any non-digits and then convert the columns to integers. This step was necessary for all tables and numeric columns that I scraped into R. From here on I will not mention this step, but it can be assumed that I included it each time I scraped a new table.
+I then cleaned the state name column by removing all non-states from the table. Fortunately, all non-states included in the table were at the end of the table, so I removed them manually all at once. The first row also included the total for the entire country, so I removed that row as well. This left the table with 51 rows for each US state and Washington DC. To avoid having to manually remove non-states in future tables, I created a smaller table with only the names of the 50 states and Washington DC so I can use a join to remove unwanted rows. 
+Lastly, I mutated the coronavirus table to add a new column that divides the total deaths by total cases to calculate a death rate for each state. The coronavirus table now includes the name of the state, the total number of cases, the number of deaths, and the death rate seen below.
+
+```{r, echo=FALSE, warning=FALSE}
+head(corona, 10)
+```
+
+# Health Data
+
+  Next, I added the each of the health variables. Each variable needed to be scraped from a different online source. I added obesity data from https://en.wikipedia.org/wiki/Obesity_in_the_United_States which gives the adult obesity rate for each US state. The smoking rate data came from https://worldpopulationreview.com/states/smoking-rates-by-state/ which gives the adult smoking rate by state. Next, https://wallethub.com/edu/states-with-best-health-care/23457/ gives an overall healthcare rating for each state. Lastly, https://www.usnews.com/news/best-states/rankings/health-care/public-health gives state by state rankings (1-50) for six different public health variables. To get a single public health statistic for each state I averaged each ranking for each state. Each of these four health variables that I imported required basic cleaning such as removing non-digits and converting to integer or double. The public health dataset required additional cleaning to make it compatible with the rest of the tables. Upon scraping the data, the state name column contained each name twice (New JerseyNew Jersey instead of New Jersey). To solve this problem, I arranged the data in alphabetic order by state as well as the state table. I then changed the public health state column with the state table to give the public health table state names in the correct format. Finally, with all health tables in the correct format, I joined each with the coronavirus table.
+  
+```{r, echo=FALSE, warning=FALSE}
+head(final_table, 10)
+```
+
+# County Coronavirus Data
+
+  The second half of my project required coronavirus data on a county level. Due to time constraints I could not do county level data from the entire country. Instead I chose to focus on New York and New Jersey because of they offer a mix of dense and sparsely populated counties as well as being the two most infected states in America. I scraped New York county coronavirus data from https://en.wikipedia.org/wiki/2020_coronavirus_pandemic_in_New_York_(state) and New Jersey county level data from https://en.wikipedia.org/wiki/2020_coronavirus_pandemic_in_New_Jersey. Both state datasets required basic cleaning. The New York dataset did not include data from each of the five boroughs in New York City and instead combined them into one total. I had to separately scrape coronavirus data for each of the five boroughs from https://projects.thecity.nyc/2020_03_covid-19-tracker/. I then changed the name of each of the boroughs to their county names and added them to the previous table. 
+	I then had to scrape population density data for New York (https://en.wikipedia.org/wiki/List_of_counties_in_New_York) and New Jersey (https://en.wikipedia.org/wiki/List_of_counties_in_New_Jersey) counties. Once again, the newly scraped data required cleaning as before. These density tables also required one additional step of cleaning. While the previous coronavirus county level data contained only the name of the county, the density data contained the county name as well as the word ‘county’ (ex. Middlesex vs. Middlesex County). This was an easy fix; I used str_replace to ensure each table had the same county name format. In order to make map plots of the data using choropleth on the county level, each county needs to have a unique county code. Fortunately, there is a table including this information that can easily be joined by county name. Starting with the county.regions table including each county’s unique code, I filtered by state (either New York or New Jersey) and then joined the data. This gave two tables, one for New York and one for New Jersey including county codes, county names, cases, deaths, death rate, and population density. Finally, I was able to combine the two state’s county level data into one table seen below.
+	
+```{r, echo=FALSE, warning=FALSE}
+head(ny_nj, 10)
+```
+
+	
+
+```{r, echo=FALSE, warning=FALSE}
+death_map
+cases_map
+obesity_map
+smoking_map
+health_map
+pubhealth_map
+
+```
+
+
+
+```{r, echo=FALSE, warning=FALSE}
+county_death
+county_cases
+county_density
+
+```
+
+
